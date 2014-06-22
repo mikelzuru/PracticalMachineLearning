@@ -1,0 +1,228 @@
+Practical Machine Learning: Personal Activity Prediction Assignment
+========================================================
+
+In this assignment we use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants:
+
+* Training data: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+* Testing data: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+* More information: http://groupware.les.inf.puc-rio.br/har
+
+The goal of this machine learning assignment is to predict the manner in which they did the exercise. This is the "classe" variable in the training set.
+
+## 1. Load and clean the data
+First we download both training and testing CSV files from the above links. After that, we load both files into R-Studio using "read.csv" function:
+
+```{r p1.1,cache = TRUE}
+trainingFile <- read.csv("pml-training.csv")
+testingFile <- read.csv("pml-testing.csv")
+```
+
+Inmediately we remove the row number (1st column in the dataset), since it has a strong correlation with the classe variable we want to predict and it causes a bad behavior of the prediction model.
+
+```{r p1.2,cache = TRUE}
+trainingFile <- trainingFile[,2:ncol(trainingFile)]
+testingFile <- testingFile[,2:ncol(testingFile)]
+```
+
+We ensure that both training and testing datasets are similar. They seem to have all same names but the last one. It doesn't matter, cause it's not one of the predictors:
+
+```{r p1.3,cache = TRUE}
+table(colnames(trainingFile) == colnames(testingFile))
+which(colnames(trainingFile) != colnames(testingFile))
+```
+
+Then, we detect those variables which have missing values in the training dataset. 
+
+```{r p1.4,cache = TRUE}
+table(apply(is.na(trainingFile),2,sum))
+```
+
+We see that most of the variables in training dataset which have missing values, they also have almost all the rows with "NA". So we will remove the variables having at least one "NA". This is an ad-hoc decision, but if dataset had only few "NA"-s in some variables, another criterion would have to be performed:
+
+```{r p1.5,cache = TRUE}
+badTrainVariables <- apply(is.na(trainingFile),2,sum) > 0
+
+trainingData <- trainingFile[,!badTrainVariables]
+testingData <- testingFile[,!badTrainVariables]
+``` 
+
+We have the same issue with testing dataset. Some variables have almost all rows as missing values.
+
+```{r p1.6,cache = TRUE}
+table(apply(is.na(testingData),2,sum))
+``` 
+
+So we remove those variables both from training and testing datasets.
+
+```{r p1.7,cache = TRUE}
+badTestVariables <- apply(is.na(testingData),2,sum) > 0
+
+trainingData <- trainingData[,!badTestVariables]
+testingData <- testingData[,!badTestVariables]
+``` 
+
+
+## 2. K-fold cross-validation and Model comparison
+```{r p2.0,echo=TRUE,message=FALSE,warning=FALSE}
+library(caret)
+library(randomForest)
+```
+
+We perform cross-validation for an estimate of error taking k=10 folds.
+
+```{r p2.1,cache = TRUE,message=FALSE,warning=FALSE}
+set.seed(1208)
+kFolds <- sample(1:10,nrow(trainingData),replace=TRUE)
+table(kFolds)
+```
+
+Additionally, we compare 3 different train methods:
+
+1. RPART
+2. LDA
+3. Random Forest
+
+Random forest has the best accuracy on its predictions. It's explained in the next lines.
+
+### 2.1 RPART method
+
+First, we build the model and estimate the error rate using previously created k=10 cross-validation.
+
+```{r p2.1.1,cache = TRUE,message=FALSE,warning=FALSE}
+#RPART k=10 fold cross-validation
+set.seed(1208)
+cvError_RPART <- rep(NA,10)
+for(i in 1:10){
+  tempModelFit <- train(classe ~ .,data=trainingData[kFolds!=i,], preProcess=c("center","scale"),method="rpart")
+  tempPredictions <- predict(tempModelFit,newdata=trainingData[kFolds==i,])
+  cvError_RPART[i] <- 1 - sum(diag(table(tempPredictions,trainingData$classe[kFolds==i])))/length(tempPredictions)
+}
+```
+
+This is the k=10 folds Cross-Validation error estimate (47%):
+
+```{r p2.1.2,cache = TRUE,message=FALSE,warning=FALSE}
+cvError_RPART
+mean(cvError_RPART)
+```
+
+Now we build a model using all the training data.
+
+```{r p2.1.3,cache = TRUE,message=FALSE,warning=FALSE}
+set.seed(1208)
+trainControl <- trainControl(method = "cv", number = 10)
+modelFit_1 <- train(classe ~ .,data=trainingData, trControl=trainControl, preProcess=c("center","scale"),method="rpart")
+```
+
+The accuracy of RPART model is 53%, more or less according to calculated values with Cross-Validation.
+
+```{r p2.1.4,cache = TRUE,message=FALSE,warning=FALSE}
+modelFit_1
+```
+
+### 2.2 LDA method
+
+First, we build the model and estimate the error rate using previously created k=10 cross-validation.
+
+```{r p2.2.1,cache = TRUE,message=FALSE,warning=FALSE}
+#LDA k=10 fold cross-validation
+set.seed(1208)
+cvError_LDA <- rep(NA,10)
+for(i in 1:10){
+  tempModelFit <- train(classe ~ .,data=trainingData[kFolds!=i,], preProcess=c("center","scale"),method="lda",allowParallel=TRUE)
+  tempPredictions <- predict(tempModelFit,newdata=trainingData[kFolds==i,])
+  cvError_LDA[i] <- 1 - sum(diag(table(tempPredictions,trainingData$classe[kFolds==i])))/length(tempPredictions)
+}
+```
+
+This is the k=10 folds Cross-Validation error estimate (14%):
+
+```{r p2.2.2,cache = TRUE,message=FALSE,warning=FALSE}
+cvError_LDA
+mean(cvError_LDA)
+```
+
+Now we build a model using all the training data.
+
+```{r p2.2.3,cache = TRUE,message=FALSE,warning=FALSE}
+set.seed(1208)
+trainControl <- trainControl(method = "cv", number = 10)
+modelFit_2 <- train(classe ~ .,data=trainingData, trControl=trainControl, preProcess=c("center","scale"),method="lda",allowParallel=TRUE)
+```
+
+The accuracy of LDA model is 90%, optimistic if we compare to Cross-Validation error estimate(100 - 14.47 = 85.53%).
+
+```{r p2.2.4,cache = TRUE,message=FALSE,warning=FALSE}
+modelFit_2
+```
+
+### 2.3 Random Forest method
+
+First, we build the model and estimate the error rate using previously created k=10 cross-validation.
+
+```{r p2.3.1,cache = TRUE,eval=FALSE}
+#Random Forest k=10 fold cross-validation
+set.seed(1208)
+cvError_RF <- rep(NA,10)
+for(i in 1:10){
+  tempModelFit <- train(classe ~ .,data=trainingData[kFolds!=i,], preProcess=c("center","scale"),method="rf",allowParallel=TRUE)
+  tempPredictions <- predict(tempModelFit,newdata=trainingData[kFolds==i,])
+  cvError_RF[i] <- 1 - sum(diag(table(tempPredictions,trainingData$classe[kFolds==i])))/length(tempPredictions)
+}
+```
+
+This is the k=10 folds Cross-Validation error estimate (less than 1%):
+
+```{r p2.3.2,cache = TRUE,eval=FALSE}
+cvError_RF
+mean(cvError_RF)
+```
+
+Due to computational costs and knitr() cache issues, I have omitted last two r-chunks 'eval = FALSE' (those relative to "Random Forest" k=10 folds Cross-Validation). Anyway, I give the neccesary code to perform the Cross-Validation error estimate so anyone can reproduce the experiment.
+
+Now we build a model using all the training data.
+
+```{r p2.3.3,cache = TRUE,message=FALSE,warning=FALSE}
+set.seed(1208)
+trainControl <- trainControl(method = "cv", number = 10)
+modelFit_3 <- train(classe ~ .,data=trainingData, trControl=trainControl, preProcess=c("center","scale"),method="rf",allowParallel=TRUE)
+```
+
+The accuracy of Random Forest model is 100%.
+
+```{r p2.3.4,cache = TRUE,message=FALSE,warning=FALSE}
+modelFit_3
+```
+
+## 3. Selecting the best model and performing prediction on test dataset
+
+Finally we select "Random Forest" method, cause it generates the model with the best accuracy (100%) at prediction:
+
+```{r p3.2,cache = TRUE,message=FALSE,warning=FALSE}
+modelFit_3$finalModel
+```
+
+We add a plot of the Random Forest model, in order to see the overall error of the model:
+
+```{r p3.3,cache = TRUE,message=FALSE,warning=FALSE}
+layout(matrix(c(1,2),nrow=1),width=c(4,1)) 
+par(mar=c(5,4,4,0))
+plot(modelFit_3$finalModel, log="y",main="Random Forest model")
+par(mar=c(5,0,4,2))
+plot(c(0,1),type="n", axes=F, xlab="", ylab="")
+legend("top", colnames(modelFit_3$finalModel$err.rate),col=1:4,cex=0.8,fill=1:4)
+```
+
+Next we present a DotChart which aims to explain the importance of variables as measured by the Random Forest model:
+
+```{r p3.4,cache = TRUE,message=FALSE,warning=FALSE}
+varImpPlot(modelFit_3$finalModel)
+```
+
+Thus, to conclude our project, we perform the prediction using the test dataset:
+
+```{r p3.5,cache = TRUE,message=FALSE,warning=FALSE}
+predictions <- predict(modelFit_3,newdata=testingData)
+predictions
+```
